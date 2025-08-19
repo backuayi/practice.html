@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LPI Linux Essentials Certificate Exam - 010-160</title>
+    <link rel="stylesheet" href="quiz_styles.css">
+    <link rel="stylesheet" href="lpi_styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- LPI Header -->
+        <div class="lpi-header">
+            <div class="lpi-logo">LPI Certification</div>
+            <div class="exam-info">
+                <h2>Linux Essentials Certificate</h2>
+                <p>Exam 010-160 | Version 1.6</p>
+            </div>
+        </div>
+        
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <div class="question-progress">
+                <span class="question-counter">Question <span id="current-question">1</span> of <span id="total-questions">40</span></span>
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div class="progress" id="progress"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="time-remaining">Time Remaining: <span id="timer">Unlimited</span></div>
+        </div>
+
+        <!-- Candidate Registration -->
+        <div class="registration-screen" id="registration-screen">
+            <div class="registration-card">
+                <h2>Linux Essentials Certificate Exam</h2>
+                <h3>Exam 010-160 (Version 1.6)</h3>
+                <div class="exam-details">
+                    <p><strong>Duration:</strong> 60 minutes</p>
+                    <p><strong>Questions:</strong> 40 (randomly selected)</p>
+                    <p><strong>Passing Score:</strong> 70% (28 correct answers)</p>
+                </div>
+                
+                <form id="registration-form">
+                    <div class="form-group">
+                        <label for="candidate-name">Full Name:</label>
+                        <input type="text" id="candidate-name" required placeholder="Enter your full name">
+                    </div>
+                    <div class="form-group">
+                        <label for="candidate-id">Candidate ID:</label>
+                        <input type="text" id="candidate-id" required placeholder="Enter your candidate ID">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Start Exam</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content" id="exam-content" style="display: none;">
+            <div class="question-container" id="question-card">
+                <div class="question-header">
+                    <div class="question-number">Question <span id="question-num">1</span></div>
+                    <div class="question-text" id="question-text">Loading question...</div>
+                </div>
+                
+                <div class="answers" id="answers">
+                    <!-- Answers will be populated by JavaScript -->
+                </div>
+                
+                <div class="feedback" id="feedback" style="display: none;">
+                    <!-- Feedback will be shown here -->
+                </div>
+                
+                <div class="question-actions">
+                    <div class="navigation">
+                        <button id="prev-btn" class="btn btn-outline" disabled>← Previous</button>
+                        <button id="next-btn" class="btn btn-outline">Next →</button>
+                    </div>
+                    <div>
+                        <button id="submit-answer" class="btn btn-primary" disabled>Submit Answer</button>
+                        <button id="next-question" class="btn btn-secondary" style="display: none;">Next Question</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="quiz-complete" id="quiz-complete" style="display: none;">
+                <h2>Exam Complete!</h2>
+                <div class="final-score">
+                <p>Your final score: <span class="score-highlight"><span id="final-score">0</span>/40</span></p>
+                    <p>Percentage: <span class="score-highlight"><span id="percentage">0</span>%</span></p>
+                    <div class="performance-message" id="performance-message"></div>
+                </div>
+                <button id="restart-quiz" class="btn btn-primary">Retake Exam</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="quiz_data.js"></script>
+    <script src="lpi_exam_fixed.js"></script>
+</body>
+</html>
