@@ -1,3 +1,858 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  LayoutDashboard, 
+  Settings, 
+  History, 
+  Search, 
+  LogOut, 
+  ShieldCheck, 
+  TrendingUp, 
+  Wallet, 
+  AlertTriangle,
+  RefreshCw,
+  ExternalLink,
+  ChevronRight,
+  Info,
+  CheckCircle2,
+  Zap,
+  ArrowUpRight,
+  ArrowDownRight,
+  BarChart3,
+  Target,
+  Activity
+} from 'lucide-react';
+
+// --- TYPES & INTERFACES ---
+
+interface Signal {
+  symbol: string;
+  prediction: 'BUY' | 'SELL' | 'HOLD';
+  confidence: number;
+  probUp: number;
+  probDown: number;
+  timestamp: string;
+}
+
+interface Balance {
+  asset: string;
+  quantity: number;
+  usdtValue: number;
+}
+
+interface Position {
+  symbol: string;
+  quantity: number;
+  entryPrice: number;
+  currentPrice: number;
+}
+
+interface Trade {
+  id: string;
+  time: string;
+  symbol: string;
+  side: 'BUY' | 'SELL';
+  mode: 'DRY RUN' | 'LIVE';
+  qty: number;
+  price: number;
+  result: number | string;
+}
+
+interface LogEntry {
+  timestamp: string;
+  level: 'INFO' | 'WARN' | 'ERROR' | 'SUCCESS';
+  message: string;
+}
+
+interface AutoTradeConfig {
+  enabled: boolean;
+  mode: 'DRY RUN' | 'LIVE';
+  symbol: string; // The active symbol the bot is watching
+  positionSize: number;
+  minConfidence: number;
+  stopLoss: number;
+  takeProfit: number;
+  maxTradesPerDay: number;
+  maxOpenPositions: number;
+  maxDailyLoss: number;
+}
+
+interface TokenSearchResult {
+  id: string;
+  name: string;
+  symbol: string;
+  rank?: number;
+  network?: string;
+  address?: string;
+  reserves?: number;
+  volume24h?: number;
+}
+
+// --- MOCK API CLIENT ---
+
+const apiClient = {
+  getStatus: async () => ({ env: 'TESTNET', autoTrading: true, mode: 'DRY RUN' }),
+  
+  getSignal: async (): Promise<Signal> => ({
+    symbol: 'BTCUSDT',
+    prediction: 'BUY',
+    confidence: 84.5,
+    probUp: 72.1,
+    probDown: 27.9,
+    timestamp: new Date().toISOString()
+  }),
+
+  getBalances: async () => ({
+    totalUsdt: 12450.50,
+    availableUsdt: 4200.25,
+    assets: [
+      { asset: 'BTC', quantity: 0.12, usdtValue: 5200.10 },
+      { asset: 'ETH', quantity: 1.5, usdtValue: 3050.15 }
+    ]
+  }),
+
+  getPositions: async (): Promise<Position[]> => [
+    { symbol: 'BTCUSDT', quantity: 0.05, entryPrice: 42000, currentPrice: 43500 },
+    { symbol: 'ETHUSDT', quantity: 0.8, entryPrice: 2200, currentPrice: 2350 }
+  ],
+
+  getHistory: async (): Promise<Trade[]> => [
+    { id: '1', time: '2023-10-27 14:20', symbol: 'BTCUSDT', side: 'BUY', mode: 'DRY RUN', qty: 0.01, price: 42500, result: 'OPEN' },
+    { id: '2', time: '2023-10-26 09:15', symbol: 'ETHUSDT', side: 'SELL', mode: 'DRY RUN', qty: 1.0, price: 2300, result: 150.25 },
+    { id: '3', time: '2023-10-25 18:30', symbol: 'SOLUSDT', side: 'SELL', mode: 'DRY RUN', qty: 25.0, price: 32.50, result: -12.40 },
+    { id: '4', time: '2023-10-25 10:12', symbol: 'BNBUSDT', side: 'SELL', mode: 'DRY RUN', qty: 2.5, price: 215.00, result: 45.10 }
+  ],
+
+  getLogs: async (): Promise<LogEntry[]> => [
+    { timestamp: '14:22:01', level: 'SUCCESS', message: 'Order placed: BUY 0.01 BTCUSDT' },
+    { timestamp: '14:21:55', level: 'INFO', message: 'Generated BUY signal (84.5% confidence)' },
+    { timestamp: '14:20:10', level: 'INFO', message: 'Fetching latest market data...' }
+  ],
+
+  getAutoTradeConfig: async (): Promise<AutoTradeConfig> => ({
+    enabled: true,
+    mode: 'DRY RUN',
+    symbol: 'BTCUSDT',
+    positionSize: 100,
+    minConfidence: 80,
+    stopLoss: 2.5,
+    takeProfit: 5.0,
+    maxTradesPerDay: 10,
+    maxOpenPositions: 3,
+    maxDailyLoss: 500
+  }),
+
+  searchTokens: async (query: string): Promise<TokenSearchResult[]> => [
+    { id: 'bitcoin', name: 'Bitcoin', symbol: 'BTC', rank: 1 },
+    { id: 'ethereum', name: 'Ethereum', symbol: 'ETH', rank: 2 }
+  ],
+
+  searchPools: async (query: string): Promise<TokenSearchResult[]> => [
+    { id: 'pool-1', name: 'WIF/SOL', symbol: 'WIF', network: 'Solana', address: '0x...123', reserves: 1500000, volume24h: 450000 }
+  ]
+};
+
+// --- COMPONENTS ---
+
+const Modal = ({ isOpen, onClose, title, children }: any) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4 text-slate-200">
+      <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded-xl shadow-2xl overflow-hidden">
+        <div className="p-4 border-b border-slate-700 flex justify-between items-center">
+          <h3 className="font-bold text-lg text-white">{title}</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-white">&times;</button>
+        </div>
+        <div className="p-6">{children}</div>
+      </div>
+    </div>
+  );
+};
+
+const PageWrapper = ({ children, title }: any) => (
+  <div className="p-6 animate-in fade-in duration-500">
+    <h1 className="text-2xl font-bold text-white mb-6">{title}</h1>
+    {children}
+  </div>
+);
+
+// --- MAIN APP ---
+
+export default function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [user, setUser] = useState({ email: 'admin@tradingbot.io' });
+  
+  // App State
+  const [signal, setSignal] = useState<Signal | null>(null);
+  const [balances, setBalances] = useState<any>(null);
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [config, setConfig] = useState<AutoTradeConfig | null>(null);
+  const [history, setHistory] = useState<Trade[]>([]);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  
+  // UI State
+  const [isTradeModalOpen, setIsTradeModalOpen] = useState(false);
+  const [manualTradeAmount, setManualTradeAmount] = useState(100);
+  const [confirmText, setConfirmText] = useState('');
+  const [loading, setLoading] = useState(false);
+  
+  // Trading Tab Specific State
+  const [tradeSymbol, setTradeSymbol] = useState('BTCUSDT');
+  const [tradeSide, setTradeSide] = useState<'BUY' | 'SELL'>('BUY');
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      loadDashboardData();
+    }
+  }, [isLoggedIn]);
+
+  const loadDashboardData = async () => {
+    setLoading(true);
+    try {
+      const [s, b, p, c, h, l] = await Promise.all([
+        apiClient.getSignal(),
+        apiClient.getBalances(),
+        apiClient.getPositions(),
+        apiClient.getAutoTradeConfig(),
+        apiClient.getHistory(),
+        apiClient.getLogs()
+      ]);
+      setSignal(s);
+      setBalances(b);
+      setPositions(p);
+      setConfig(c);
+      setHistory(h);
+      setLogs(l);
+      if (c) {
+        setManualTradeAmount(c.positionSize);
+        setTradeSymbol(c.symbol);
+      }
+    } catch (e) {
+      console.error("Failed to load data", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateConfigField = (field: keyof AutoTradeConfig, value: any) => {
+    if (config) {
+      setConfig({ ...config, [field]: value });
+    }
+  };
+
+  const closedPositions = useMemo(() => {
+    return history.filter(trade => typeof trade.result === 'number');
+  }, [history]);
+
+  if (!isLoggedIn) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-xl">
+          <div className="flex flex-col items-center mb-8">
+            <div className="bg-blue-600 p-3 rounded-xl mb-4">
+              <TrendingUp className="text-white w-8 h-8" />
+            </div>
+            <h2 className="text-2xl font-bold text-white">Bot Dashboard</h2>
+            <p className="text-slate-400 text-sm mt-1">Sign in to manage your trading bot</p>
+          </div>
+          <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); setIsLoggedIn(true); }}>
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">Email Address</label>
+              <input type="email" required className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all" defaultValue="admin@tradingbot.io" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1 uppercase tracking-wider">Password</label>
+              <input type="password" required className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all" defaultValue="password123" />
+            </div>
+            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 rounded-lg transition-colors mt-2 shadow-lg shadow-blue-900/20">
+              Enter Dashboard
+            </button>
+          </form>
+          <p className="mt-8 text-[10px] text-center text-slate-500 uppercase tracking-widest leading-relaxed">
+            For educational purposes only. Not financial advice.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-screen bg-slate-950 text-slate-200 overflow-hidden font-sans">
+      {/* Sidebar */}
+      <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col flex-shrink-0">
+        <div className="p-6 flex items-center gap-3">
+          <div className="bg-blue-600 p-1.5 rounded-lg">
+            <TrendingUp className="w-5 h-5 text-white" />
+          </div>
+          <span className="font-bold text-white tracking-tight">Realman Bot</span>
+        </div>
+        
+        <nav className="flex-1 px-4 space-y-1 py-4">
+          {[
+            { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+            { id: 'trading', label: 'Trading Terminal', icon: Zap },
+            { id: 'autotrade', label: 'Auto-Trading', icon: ShieldCheck },
+            { id: 'history', label: 'History & Logs', icon: History },
+            { id: 'search', label: 'Token Search', icon: Search },
+          ].map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setActiveTab(item.id)}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                activeTab === item.id 
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' 
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+            >
+              <item.icon className="w-4 h-4" />
+              {item.label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="p-4 border-t border-slate-800 space-y-4">
+          <div className="bg-slate-800/50 rounded-lg p-3">
+            <p className="text-xs text-slate-500 uppercase mb-1">Account</p>
+            <p className="text-sm font-medium truncate">{user.email}</p>
+          </div>
+          <button 
+            onClick={() => setIsLoggedIn(false)}
+            className="w-full flex items-center gap-3 px-3 py-2 text-sm text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            Sign Out
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Header */}
+        <header className="h-16 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-6 flex-shrink-0">
+          <div className="flex items-center gap-4">
+            <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold ${
+              config?.mode === 'LIVE' ? 'bg-red-500/10 text-red-500 border border-red-500/20' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+            }`}>
+              <div className={`w-2 h-2 rounded-full animate-pulse ${config?.mode === 'LIVE' ? 'bg-red-500' : 'bg-emerald-500'}`} />
+              {config?.mode === 'LIVE' ? 'LIVE MAINNET' : 'TESTNET / DRY RUN'}
+            </div>
+            <div className="text-xs text-slate-500 border-l border-slate-800 pl-4">
+              Auto-Trading: <span className={config?.enabled ? 'text-emerald-400 font-bold' : 'text-slate-400'}>
+                {config?.enabled ? 'ON' : 'OFF'}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={loadDashboardData}
+              disabled={loading}
+              className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-all"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+        </header>
+
+        {/* Content Area */}
+        <div className="flex-1 overflow-y-auto bg-slate-950">
+          {activeTab === 'dashboard' && (
+            <PageWrapper title="Dashboard Overview">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                {/* 1. Signal Card */}
+                <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+                  <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
+                    <h3 className="font-semibold text-slate-200 flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-blue-400" />
+                      Current Signal: {signal?.symbol}
+                    </h3>
+                    <span className="text-[10px] text-slate-500 uppercase">Last updated: {signal ? new Date(signal.timestamp).toLocaleTimeString() : '--'}</span>
+                  </div>
+                  <div className="p-6">
+                    <div className="flex items-end justify-between mb-8">
+                      <div>
+                        <div className={`text-5xl font-black tracking-tighter ${
+                          signal?.prediction === 'BUY' ? 'text-emerald-500' : signal?.prediction === 'SELL' ? 'text-red-500' : 'text-slate-400'
+                        }`}>
+                          {signal?.prediction || 'N/A'}
+                        </div>
+                        <div className="text-sm text-slate-400 mt-2 flex items-center gap-2">
+                          Confidence Level: <span className="text-white font-mono">{signal?.confidence}%</span>
+                        </div>
+                      </div>
+                      <div className="text-right space-y-2">
+                        <div className="text-xs uppercase tracking-widest text-slate-500">Probabilities</div>
+                        <div className="flex gap-4">
+                          <div className="text-center">
+                            <div className="text-emerald-400 font-bold font-mono text-xl">{signal?.probUp}%</div>
+                            <div className="text-[10px] text-slate-500 uppercase">UP</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-red-400 font-bold font-mono text-xl">{signal?.probDown}%</div>
+                            <div className="text-[10px] text-slate-500 uppercase">DOWN</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex gap-3">
+                      <button 
+                        onClick={loadDashboardData}
+                        className="flex-1 bg-slate-800 hover:bg-slate-700 text-white text-sm font-semibold py-2.5 rounded-lg transition-colors border border-slate-700"
+                      >
+                        Refresh Signal
+                      </button>
+                      <button 
+                        onClick={() => {
+                          setTradeSymbol(signal?.symbol || 'BTCUSDT');
+                          setTradeSide(signal?.prediction === 'SELL' ? 'SELL' : 'BUY');
+                          setIsTradeModalOpen(true);
+                        }}
+                        className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold py-2.5 rounded-lg transition-colors"
+                      >
+                        Execute Suggested Trade
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Account Summary */}
+                <div className="bg-slate-900 border border-slate-800 rounded-xl flex flex-col overflow-hidden">
+                  <div className="p-4 border-b border-slate-800 bg-slate-900/50">
+                    <h3 className="font-semibold text-slate-200 flex items-center gap-2">
+                      <Wallet className="w-4 h-4 text-emerald-400" />
+                      Account Overview
+                    </h3>
+                  </div>
+                  <div className="p-5 flex-1 space-y-6">
+                    <div>
+                      <div className="text-xs text-slate-500 uppercase tracking-wider mb-1">Total Account Value</div>
+                      <div className="text-3xl font-bold text-white font-mono">
+                        ${balances?.totalUsdt.toLocaleString() || '0.00'}
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      <div className="text-xs text-slate-500 uppercase tracking-wider border-b border-slate-800 pb-2">Top Assets</div>
+                      {balances?.assets.map((a: Balance) => (
+                        <div key={a.asset} className="flex justify-between items-center text-sm">
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center text-[10px] font-bold">{a.asset[0]}</div>
+                            <span className="font-medium">{a.asset}</span>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-mono">{a.quantity}</div>
+                            <div className="text-[10px] text-slate-500">${a.usdtValue}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Open Positions */}
+                <div className="lg:col-span-3 bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+                   <div className="p-4 border-b border-slate-800 bg-slate-900/50 flex justify-between">
+                    <h3 className="font-semibold text-slate-200">Open Positions</h3>
+                    <span className="text-xs bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20">{positions.length} active</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead className="text-xs text-slate-500 uppercase bg-slate-800/30">
+                        <tr>
+                          <th className="px-6 py-3 font-medium">Symbol</th>
+                          <th className="px-6 py-3 font-medium">Qty</th>
+                          <th className="px-6 py-3 font-medium">Entry Price</th>
+                          <th className="px-6 py-3 text-right font-medium">PnL</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800">
+                        {positions.map((p) => {
+                          const pnl = ((p.currentPrice - p.entryPrice) / p.entryPrice) * 100;
+                          return (
+                            <tr key={p.symbol} className="hover:bg-slate-800/30 transition-colors">
+                              <td className="px-6 py-4 font-bold text-white">{p.symbol}</td>
+                              <td className="px-6 py-4 font-mono">{p.quantity}</td>
+                              <td className="px-6 py-4 font-mono">${p.entryPrice.toLocaleString()}</td>
+                              <td className={`px-6 py-4 font-bold text-right font-mono ${pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)}%
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </PageWrapper>
+          )}
+
+          {activeTab === 'trading' && (
+            <PageWrapper title="Trading Terminal">
+              <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 h-full items-start">
+                
+                {/* Order Execution Panel */}
+                <div className="xl:col-span-1 bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-6 sticky top-0">
+                  <div className="flex gap-2 p-1 bg-slate-800 rounded-lg mb-4">
+                    <button 
+                      onClick={() => setTradeSide('BUY')}
+                      className={`flex-1 py-2 rounded-md font-bold text-sm transition-all ${tradeSide === 'BUY' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'}`}
+                    >
+                      BUY
+                    </button>
+                    <button 
+                      onClick={() => setTradeSide('SELL')}
+                      className={`flex-1 py-2 rounded-md font-bold text-sm transition-all ${tradeSide === 'SELL' ? 'bg-red-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'}`}
+                    >
+                      SELL
+                    </button>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5">Market Symbol</label>
+                      <div className="relative">
+                        <input 
+                          type="text" 
+                          className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-4 pr-10 py-3 text-white font-mono focus:ring-2 focus:ring-blue-500"
+                          value={tradeSymbol}
+                          onChange={(e) => setTradeSymbol(e.target.value.toUpperCase())}
+                        />
+                        <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between items-end mb-1.5">
+                        <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Amount (USDT)</label>
+                        <span className="text-[10px] text-slate-400">Available: ${balances?.availableUsdt.toLocaleString()}</span>
+                      </div>
+                      <input 
+                        type="number" 
+                        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white font-mono focus:ring-2 focus:ring-blue-500"
+                        value={manualTradeAmount}
+                        onChange={(e) => setManualTradeAmount(Number(e.target.value))}
+                      />
+                    </div>
+
+                    <button 
+                      onClick={() => setIsTradeModalOpen(true)}
+                      className={`w-full py-4 rounded-xl font-black text-sm tracking-widest shadow-xl transition-all active:scale-95 ${
+                        tradeSide === 'BUY' ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-900/20' : 'bg-red-600 hover:bg-red-500 shadow-red-900/20'
+                      }`}
+                    >
+                      PLACE {tradeSide} ORDER
+                    </button>
+                  </div>
+                </div>
+
+                {/* Chart Area */}
+                <div className="xl:col-span-3 space-y-6">
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+                    <div className="flex justify-between items-center mb-6">
+                      <div className="flex items-center gap-4">
+                        <h2 className="text-2xl font-black text-white">{tradeSymbol}</h2>
+                        <div className="flex items-center gap-2 text-emerald-400 text-sm font-bold bg-emerald-400/10 px-2 py-0.5 rounded">
+                          <ArrowUpRight className="w-4 h-4" />
+                          +2.45%
+                        </div>
+                      </div>
+                    </div>
+                    <div className="h-64 bg-slate-950/50 rounded-lg border border-slate-800/50 flex flex-col items-center justify-center relative overflow-hidden">
+                      <BarChart3 className="w-12 h-12 text-slate-800" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </PageWrapper>
+          )}
+
+          {activeTab === 'autotrade' && (
+            <PageWrapper title="Auto-Trading Engine">
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
+                
+                {/* Status and Active Symbol (NEW SECTION) */}
+                <div className="xl:col-span-2 space-y-6">
+                  {/* Highlight: Active Symbol */}
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 overflow-hidden relative shadow-lg">
+                    <div className="absolute top-0 right-0 p-8 opacity-5">
+                      <Activity className="w-32 h-32" />
+                    </div>
+                    
+                    <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                      <div className="flex items-center gap-6">
+                        <div className="w-16 h-16 rounded-2xl bg-blue-600 flex items-center justify-center text-white shadow-xl shadow-blue-900/40">
+                          <Target className="w-8 h-8" />
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mb-1">Actively Monitoring</p>
+                          <div className="flex items-center gap-3">
+                            <h2 className="text-4xl font-black text-white tracking-tighter">{config?.symbol || 'N/A'}</h2>
+                            <span className="px-2 py-1 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-black uppercase border border-emerald-500/20">Market Active</span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-4 bg-slate-950/50 p-4 rounded-xl border border-slate-800">
+                        <div className="text-right">
+                          <p className="text-[10px] text-slate-500 font-bold uppercase mb-1">Engine Status</p>
+                          <p className={`text-sm font-black ${config?.enabled ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {config?.enabled ? 'FULLY OPERATIONAL' : 'SYSTEM PAUSED'}
+                          </p>
+                        </div>
+                        <div className={`w-3 h-3 rounded-full ${config?.enabled ? 'bg-emerald-500 animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 'bg-red-500'}`} />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Operational Settings Grid */}
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 space-y-8">
+                    <h3 className="text-sm font-black text-white uppercase tracking-widest border-b border-slate-800 pb-4">Configuration Profile</h3>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div className="space-y-6">
+                         <div>
+                          <label className="block text-[10px] font-bold text-slate-500 mb-2 uppercase tracking-widest">Active Trading Symbol</label>
+                          <div className="relative">
+                            <input 
+                              type="text" 
+                              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white font-mono focus:ring-2 focus:ring-blue-500" 
+                              value={config?.symbol || ''} 
+                              onChange={(e) => updateConfigField('symbol', e.target.value.toUpperCase())}
+                              placeholder="e.g. BTCUSDT"
+                            />
+                            <div className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-600 text-[10px] font-bold">PERP</div>
+                          </div>
+                          <p className="mt-2 text-[10px] text-slate-500">The ML engine will only generate signals for this pair.</p>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 mb-2 uppercase tracking-widest">Trading Mode</label>
+                          <select 
+                            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white font-bold focus:ring-2 focus:ring-blue-500"
+                            value={config?.mode || 'DRY RUN'}
+                            onChange={(e) => updateConfigField('mode', e.target.value)}
+                          >
+                            <option value="DRY RUN">DRY RUN (Simulation)</option>
+                            <option value="LIVE">LIVE (Real Mainnet)</option>
+                          </select>
+                        </div>
+                        
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 mb-2 uppercase tracking-widest">Position Size (USDT)</label>
+                          <input 
+                            type="number" 
+                            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white font-mono" 
+                            value={config?.positionSize || 0} 
+                            onChange={(e) => updateConfigField('positionSize', Number(e.target.value))}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-6">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 mb-2 uppercase tracking-widest">Stop Loss %</label>
+                            <input 
+                              type="number" 
+                              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white font-mono" 
+                              value={config?.stopLoss || 0} 
+                              onChange={(e) => updateConfigField('stopLoss', Number(e.target.value))}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 mb-2 uppercase tracking-widest">Take Profit %</label>
+                            <input 
+                              type="number" 
+                              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white font-mono" 
+                              value={config?.takeProfit || 0} 
+                              onChange={(e) => updateConfigField('takeProfit', Number(e.target.value))}
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 mb-2 uppercase tracking-widest">Confidence Threshold %</label>
+                          <div className="flex items-center gap-4">
+                            <input 
+                              type="range" 
+                              min="50" max="99"
+                              className="flex-1 h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600" 
+                              value={config?.minConfidence || 80} 
+                              onChange={(e) => updateConfigField('minConfidence', Number(e.target.value))}
+                            />
+                            <span className="text-white font-black font-mono w-10">{config?.minConfidence}%</span>
+                          </div>
+                        </div>
+
+                        <div className="pt-4">
+                          <button 
+                            onClick={() => updateConfigField('enabled', !config?.enabled)}
+                            className={`w-full py-4 rounded-xl font-black text-sm tracking-widest transition-all ${
+                              config?.enabled 
+                                ? 'bg-red-600/10 text-red-500 border border-red-600/20 hover:bg-red-600 hover:text-white' 
+                                : 'bg-emerald-600 text-white shadow-xl shadow-emerald-900/30 hover:bg-emerald-500'
+                            }`}
+                          >
+                            {config?.enabled ? 'STOP TRADING ENGINE' : 'START TRADING ENGINE'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Engine Stats/Metrics Sidebar */}
+                <div className="space-y-6">
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                    <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Daily Performance</h4>
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-slate-400">Total Trades</span>
+                        <span className="text-sm font-bold text-white">4 / {config?.maxTradesPerDay}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-slate-400">Win Rate</span>
+                        <span className="text-sm font-bold text-emerald-400">75%</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-slate-400">Daily PnL</span>
+                        <span className="text-sm font-bold text-emerald-400">+$182.40</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-blue-600/5 border border-blue-600/20 rounded-2xl p-6">
+                    <h4 className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-4">Machine Learning</h4>
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      The model is currently using <span className="text-white font-bold">ResNet-50</span> logic optimized for <span className="text-white font-bold">{config?.symbol}</span> volatility patterns.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </PageWrapper>
+          )}
+
+          {activeTab === 'history' && (
+            <PageWrapper title="Trade History & Logs">
+              <div className="space-y-8">
+                <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+                  <div className="p-4 border-b border-slate-800 bg-slate-900/50">
+                    <h3 className="font-semibold text-slate-200">Execution History</h3>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead className="text-xs text-slate-500 uppercase bg-slate-800/30">
+                        <tr>
+                          <th className="px-6 py-3">Time</th>
+                          <th className="px-6 py-3">Symbol</th>
+                          <th className="px-6 py-3">Side</th>
+                          <th className="px-6 py-3 text-right">Result</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800">
+                        {history.map((h) => (
+                          <tr key={h.id} className="hover:bg-slate-800/30 transition-colors">
+                            <td className="px-6 py-4 text-slate-400">{h.time}</td>
+                            <td className="px-6 py-4 font-bold">{h.symbol}</td>
+                            <td className="px-6 py-4">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${h.side === 'BUY' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
+                                {h.side}
+                              </span>
+                            </td>
+                            <td className={`px-6 py-4 text-right font-mono font-bold ${typeof h.result === 'number' ? (h.result >= 0 ? 'text-emerald-400' : 'text-red-400') : 'text-blue-400'}`}>
+                              {typeof h.result === 'number' ? `$${h.result}` : h.result}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </PageWrapper>
+          )}
+
+          {activeTab === 'search' && (
+            <PageWrapper title="Market Discovery">
+              <div className="p-20 text-center text-slate-500 italic bg-slate-900 border border-slate-800 rounded-xl">
+                Global symbol search is active. Search for any pair to view market details.
+              </div>
+            </PageWrapper>
+          )}
+        </div>
+
+        {/* Global Footer */}
+        <footer className="h-8 bg-slate-900 border-t border-slate-800 flex items-center justify-center px-4 shrink-0">
+          <p className="text-[10px] text-slate-500 uppercase tracking-widest flex items-center gap-2">
+            <Info className="w-3 h-3" />
+            Educational purposes only • No financial advice • Controls real bot instance
+          </p>
+        </footer>
+      </main>
+
+      {/* Manual Trade Confirmation Modal */}
+      <Modal 
+        isOpen={isTradeModalOpen} 
+        onClose={() => { setIsTradeModalOpen(false); setConfirmText(''); }}
+        title="Confirm Execution"
+      >
+        <div className="space-y-4">
+          <div className={`p-4 rounded-lg border flex justify-between items-center ${tradeSide === 'BUY' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
+            <div>
+              <span className={`text-[10px] font-black uppercase tracking-widest ${tradeSide === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`}>{tradeSide} Order</span>
+              <h4 className="text-xl font-black text-white">{tradeSymbol}</h4>
+            </div>
+            <div className="text-right">
+              <span className="text-[10px] font-bold text-slate-500 uppercase">Estimated Value</span>
+              <p className="text-lg font-mono text-white">${manualTradeAmount.toLocaleString()}</p>
+            </div>
+          </div>
+
+          {config?.mode === 'LIVE' && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 space-y-3">
+              <div className="flex items-center gap-2 text-red-400 font-bold text-sm">
+                <AlertTriangle className="w-4 h-4" />
+                LIVE TRADING WARNING
+              </div>
+              <p className="text-xs text-red-300 leading-relaxed">
+                You are about to execute a LIVE trade. Type <strong>CONFIRM</strong> below to enable.
+              </p>
+              <input 
+                type="text" 
+                placeholder="Type CONFIRM here"
+                className="w-full bg-slate-900 border border-red-500/30 rounded-lg px-3 py-2 text-white text-sm focus:border-red-500 outline-none transition-all"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+              />
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-2">
+             <button 
+              onClick={() => setIsTradeModalOpen(false)}
+              className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2.5 rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button 
+              disabled={config?.mode === 'LIVE' && confirmText !== 'CONFIRM'}
+              className={`flex-1 font-bold py-2.5 rounded-lg transition-all ${
+                config?.mode === 'LIVE' 
+                ? (confirmText === 'CONFIRM' ? 'bg-red-600 hover:bg-red-500 text-white shadow-lg' : 'bg-slate-700 text-slate-500 cursor-not-allowed')
+                : (tradeSide === 'BUY' ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/20' : 'bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/20')
+              }`}
+            >
+              Execute {tradeSide}
+            </button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -100,3 +955,4 @@
     <script src="lpi_exam_fixed.js"></script>
 </body>
 </html>
+
